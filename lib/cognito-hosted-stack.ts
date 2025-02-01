@@ -51,11 +51,12 @@ export class CognitoHostedStack extends Stack {
     // });
 
     const userPool = new UserPool(this, "UserPool");
+    const domainPrefix = "martzmakes-example";
     const domain = userPool.addDomain(
       "CognitoDomainWithBlandingDesignManagedLogin",
       {
         cognitoDomain: {
-          domainPrefix: "martzmakes-example",
+          domainPrefix,
         },
         // customDomain: {
         //   domainName: authDomain,
@@ -72,11 +73,11 @@ export class CognitoHostedStack extends Stack {
         flows: {
           implicitCodeGrant: true,
         },
-        callbackUrls: [homeUrl],
+        callbackUrls: [`https://${clientBaseDomain}`, homeUrl],
       },
     });
 
-    new CfnManagedLoginBranding(this, 'ManagedLoginBranding', {
+    new CfnManagedLoginBranding(this, "ManagedLoginBranding", {
       userPoolId: userPool.userPoolId,
       clientId: client.userPoolClientId,
       returnMergedResources: true,
@@ -160,6 +161,12 @@ export class CognitoHostedStack extends Stack {
       runtime: Runtime.NODEJS_LATEST,
       logGroup,
       architecture: Architecture.ARM_64,
+      environment: {
+        AUTH_PREFIX: domainPrefix,
+        BASE_DOMAIN: clientBaseDomain,
+        USER_POOL_CLIENT_ID: client.userPoolClientId,
+        USER_POOL_ID: userPool.userPoolId,
+      }
     });
 
     const siteProxy = restApi.root.addProxy({
