@@ -17,6 +17,7 @@ import {
   CertificateValidation,
 } from "aws-cdk-lib/aws-certificatemanager";
 import {
+  CfnManagedLoginBranding,
   UserPool,
   ManagedLoginVersion,
   UserPoolClient,
@@ -75,6 +76,13 @@ export class CognitoHostedStack extends Stack {
       },
     });
 
+    new CfnManagedLoginBranding(this, 'ManagedLoginBranding', {
+      userPoolId: userPool.userPoolId,
+      clientId: client.userPoolClientId,
+      returnMergedResources: true,
+      useCognitoProvidedValues: true,
+    });
+
     domain.signInUrl(client, {
       redirectUri: homeUrl,
     });
@@ -122,7 +130,7 @@ export class CognitoHostedStack extends Stack {
     });
 
     const apiLogs = new LogGroup(this, `/${id}ApiLogs`, {
-      logGroupName: `/${id}-hello`,
+      logGroupName: `/${id}-api`,
       retention: RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
