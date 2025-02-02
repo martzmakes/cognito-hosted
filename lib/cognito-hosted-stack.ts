@@ -1,8 +1,6 @@
 import { RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import {
   AccessLogFormat,
-  AuthorizationType,
-  CognitoUserPoolsAuthorizer,
   Cors,
   EndpointType,
   LambdaIntegration,
@@ -10,6 +8,7 @@ import {
   MethodLoggingLevel,
   MockIntegration,
   PassthroughBehavior,
+  RequestAuthorizer,
   RestApi,
 } from "aws-cdk-lib/aws-apigateway";
 import {
@@ -44,11 +43,6 @@ export class CognitoHostedStack extends Stack {
       domainName: `${clientBaseDomain}`,
       validation: CertificateValidation.fromDns(hostedZone),
     });
-    // const authDomain = `auth-${clientBaseDomain}`;
-    // const authCert = new Certificate(this, "authCert", {
-    //   domainName: authDomain,
-    //   validation: CertificateValidation.fromDns(hostedZone),
-    // });
 
     const userPool = new UserPool(this, "UserPool");
     const domainPrefix = "martzmakes-example";
@@ -58,10 +52,6 @@ export class CognitoHostedStack extends Stack {
         cognitoDomain: {
           domainPrefix,
         },
-        // customDomain: {
-        //   domainName: authDomain,
-        //   certificate: authCert,
-        // },
         managedLoginVersion: ManagedLoginVersion.NEWER_MANAGED_LOGIN,
       }
     );
@@ -87,14 +77,6 @@ export class CognitoHostedStack extends Stack {
     domain.signInUrl(client, {
       redirectUri: homeUrl,
     });
-
-    const authorizer = new CognitoUserPoolsAuthorizer(
-      this,
-      `${id}UserPoolAuthorizer`,
-      {
-        cognitoUserPools: [userPool],
-      }
-    );
 
     const restApi = new RestApi(this, `Api`, {
       defaultCorsPreflightOptions: {
@@ -130,6 +112,28 @@ export class CognitoHostedStack extends Stack {
       target: RecordTarget.fromAlias(new ApiGateway(restApi)),
     });
 
+    const authLogs = new LogGroup(this, `/${id}authLogs`, {
+      logGroupName: `/${id}-auth`,
+      retention: RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+    const authFn = new NodejsFunction(this, "auth", {
+      entry: join(__dirname, "fns/auth.ts"),
+      runtime: Runtime.NODEJS_LATEST,
+      logGroup: authLogs,
+      architecture: Architecture.ARM_64,
+      environment: {
+        AUTH_PREFIX: domainPrefix,
+        BASE_DOMAIN: clientBaseDomain,
+        USER_POOL_CLIENT_ID: client.userPoolClientId,
+        USER_POOL_ID: userPool.userPoolId,
+      },
+    });
+    const authorizerFn = new RequestAuthorizer(this, "Authorizer", {
+      handler: authFn,
+      identitySources: ["method.request.header.Cookie"],
+    });
+
     const apiLogs = new LogGroup(this, `/${id}ApiLogs`, {
       logGroupName: `/${id}-api`,
       retention: RetentionDays.ONE_WEEK,
@@ -146,10 +150,32 @@ export class CognitoHostedStack extends Stack {
       anyMethod: true,
       defaultIntegration: new LambdaIntegration(apiFn, { proxy: true }),
       defaultMethodOptions: {
-        authorizer,
-        authorizationType: AuthorizationType.COGNITO,
+        authorizer: authorizerFn,
       },
     });
+
+    const protectedFn = new NodejsFunction(this, "protected", {
+      entry: join(__dirname, "fns/protected.ts"),
+      runtime: Runtime.NODEJS_LATEST,
+      logGroup: new LogGroup(this, `/${id}ProtectedLogs`, {
+        logGroupName: `/${id}-protected`,
+        retention: RetentionDays.ONE_WEEK,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+      architecture: Architecture.ARM_64,
+      environment: {
+        AUTH_PREFIX: domainPrefix,
+        BASE_DOMAIN: clientBaseDomain,
+        USER_POOL_CLIENT_ID: client.userPoolClientId,
+        USER_POOL_ID: userPool.userPoolId,
+      },
+    });
+
+    restApi.root
+      .addResource("protected")
+      .addMethod("GET", new LambdaIntegration(protectedFn), {
+        authorizer: authorizerFn,
+      });
 
     const logGroup = new LogGroup(this, `/${id}SiteLogs`, {
       logGroupName: `/${id}-site`,
@@ -166,7 +192,7 @@ export class CognitoHostedStack extends Stack {
         BASE_DOMAIN: clientBaseDomain,
         USER_POOL_CLIENT_ID: client.userPoolClientId,
         USER_POOL_ID: userPool.userPoolId,
-      }
+      },
     });
 
     const siteProxy = restApi.root.addProxy({
@@ -174,7 +200,7 @@ export class CognitoHostedStack extends Stack {
     });
     siteProxy.addMethod("GET", new LambdaIntegration(fn));
 
-    // Reject other methods (POST, PUT, DELETE, etc.) for the site proxy
+    // Reject other methods (POST, PUT, DELETE, etc.) for the site proxy, the api proxy will handle those
     ["POST", "PUT", "DELETE", "PATCH"].forEach((method) => {
       siteProxy.addMethod(
         method,

@@ -10,7 +10,7 @@ export const handler = async () => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lambda Page</title>
+    <title>cognito-hosted | martzmakes</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -53,13 +53,14 @@ export const handler = async () => {
     </style>
     <script type="module">
         function setCookie(name, value, days) {
+            console.log("setting cookie", name, value, days);
             let expires = "";
             if (days) {
                 const date = new Date();
                 date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
                 expires = "; expires=" + date.toUTCString();
             }
-            document.cookie = name + "=" + value + "; path=/" + expires;
+            document.cookie = name + "=" + value + "; Secure; SameSite=Strict; path=/" + expires;
         }
 
         function getCookie(name) {
@@ -86,12 +87,8 @@ export const handler = async () => {
         }
 
         async function fetchAPIData() {
-            const idToken = getCookie("CognitoIdToken");
-            if (!idToken) return;
             try {
-                const response = await fetch('/api/hello', {
-                    headers: { 'Authorization': \`Bearer \${idToken}\` }
-                });
+                const response = await fetch('/api/hello');
                 const data = await response.json();
                 document.getElementById("api-response").textContent = JSON.stringify(data, null, 2);
             } catch (error) {
@@ -123,6 +120,8 @@ export const handler = async () => {
         <button id="signOut" class="button sign-out hidden" onclick="signOut()">Sign Out</button>
         <h2>API Response</h2>
         <pre id="api-response">No data yet</pre>
+        <hr />
+        <a href="/protected">PROTECTED</a>
     </div>
 </body>
 </html>`,
